@@ -1,0 +1,5 @@
+*~
+*.o
+wireless_bootloader.bin
+wireless_bootloader.elf
+wireless_bootloader.hex
