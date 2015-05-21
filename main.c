@@ -12,6 +12,10 @@
 int __errno;
 
 
+/* To change this, must change the code in system_stm32f4xx.c. */
+#define MCU_HZ 168000000
+
+
 static void
 delay(__IO uint32_t nCount)
 {
@@ -354,12 +358,144 @@ nrf_config_bootload_rx(void)
 }
 
 
+/*
+  Would use SysTick_Config(), but it has a bug that it does not allow to
+  set the reload value to 0xffffff (off-by-one error, max is 0xfffffe).
+*/
+static void
+setup_systick(void)
+{
+  SysTick->LOAD = 0xffffff;
+  SysTick->VAL = 0;
+  SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk |
+    SysTick_CTRL_ENABLE_Msk;
+}
+
+
+static inline uint32_t
+get_time(void)
+{
+  return SysTick->VAL;
+}
+
+
+static inline uint32_t
+calc_time_from_val(uint32_t start, uint32_t stop)
+{
+  return (start - stop) & 0xffffff;
+}
+
+
+static inline uint32_t
+calc_time(uint32_t start)
+{
+  uint32_t stop = get_time();
+  return calc_time_from_val(start, stop);
+}
+
+
+static inline uint32_t
+dec_time(uint32_t val, uint32_t inc)
+{
+  return (val - inc) & 0xffffff;
+}
+
+
+/*
+  Delay until specified amount of systicks have passed.
+
+  As systick is a 24-bit counter, the amount cannot exceed 0xffffff, or a bit
+  more than 16000000.
+*/
+static void
+delay_systicks(uint32_t cycles)
+{
+  uint32_t start = get_time();
+
+  while (calc_time(start) < cycles)
+    ;
+}
+
+
+static void
+delay_us(uint32_t us)
+{
+  /* This assumes that MCU_HZ is divisible by 1000000. */
+  uint32_t cycles = (MCU_HZ/1000000)*us;
+#if (MCU_HZ % 1000000)
+#error delay_us() computes delay incorrectly if MCU_HZ is not a multiple of 1000000
+#endif
+
+  while (cycles > 0xff0000)
+  {
+    delay_systicks(0xff0000);
+    cycles -= 0xff0000;
+  }
+  delay_systicks(cycles);
+}
+
+
+/*
+  Read both the normal and FIFO status registers.
+  Returns normal status or'ed with (fifo status left-shifted 8).
+*/
+static uint32_t
+nrf_get_status(void)
+{
+  uint8_t status;
+  uint32_t fifo_status;
+
+  fifo_status = nrf_read_reg(nRF_FIFO_STATUS, &status);
+  return (fifo_status << 8) | status;
+}
+
+
+static uint32_t
+nrf_transmit_packet(uint8_t *packet)
+{
+  uint32_t start_time = get_time();
+
+  nrf_tx(packet, 32);
+  ce_high();
+  delay_us(10);
+  ce_low();
+
+  for (;;)
+  {
+    uint32_t status = nrf_get_status();
+    if (status & nRF_MAX_RT)
+    {
+      serial_puts("No ack from receiver\r\n");
+      return 1;
+    }
+    if (status & nRF_TX_DS)
+      return 0;
+    if (calc_time(start_time) > 16000000)
+    {
+      serial_puts("Timeout from nRF24L01+ waiting for transmit\r\n");
+      return 1;
+    }
+  }
+}
+
+
+/*
+  I actually wanted to disable the systicks interrupt.
+  But for now, just have an empty handler, so we don't crash when the
+  interrupt triggers...
+*/
+void SysTick_Handler(void)
+{
+}
+
+
 int
 main(void)
 {
   uint8_t val;
   uint8_t status;
 
+  setup_systick();
   setup_led();
   setup_serial();
 
@@ -381,8 +517,8 @@ main(void)
   for (;;)
   {
     led_on();
-    delay(28000000);
+    delay_us(500000);
     led_off();
-    delay(28000000);
+    delay_us(500000);
   }
 }
