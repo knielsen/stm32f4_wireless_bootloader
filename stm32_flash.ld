@@ -33,7 +33,7 @@
 ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
-_estack = 0x20020000;    /* end of 128K RAM on AHB bus*/
+_estack = 0x10010000;    /* end of 64K RAM internal in Cortex M4 */
 
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0;      /* required amount of heap  */
@@ -42,12 +42,16 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Specify the memory areas */
 MEMORY
 {
-  FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 1024K
-  RAM2 (xrw)      : ORIGIN = 0x10000000, LENGTH = 64K
-  RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 0x05000
-  LOG (rw)        : ORIGIN = 0x20005000, LENGTH = 0x1b000
-  MEMORY_B1 (rx)  : ORIGIN = 0x60000000, LENGTH = 0K
+  /* Restrict FLASH to the first 16K block for the bootloader. */
+  FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 7K
+  RAM (xrw)       : ORIGIN = 0x10000000, LENGTH = 64K
+  RAM2 (xrw)      : ORIGIN = 0x20000000, LENGTH = 0x20000
 }
+/*
+   We could set up a .bss_xxx section for RAM2.
+   But since we only need a single buffer in there, it's probably easier to
+   just hard-code the address in the .c file.
+*/
 
 /* Define output sections */
 SECTIONS
@@ -150,23 +154,6 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(4);
   } >RAM
-
-  .debug_log (NOLOAD) :
-  {
-    _debug_log_start = .;
-    *(.debug_log)
-    _debug_log_end = .;
-  } > LOG
-
-  /* MEMORY_bank1 section, code must be located here explicitly            */
-  /* Example: extern int foo(void) __attribute__ ((section (".mb1text"))); */
-  .memory_b1_text :
-  {
-    *(.mb1text)        /* .mb1text sections (code) */
-    *(.mb1text*)       /* .mb1text* sections (code)  */
-    *(.mb1rodata)      /* read-only data (constants) */
-    *(.mb1rodata*)
-  } >MEMORY_B1
 
   /* Remove information from the standard libraries */
   /DISCARD/ :

@@ -76,7 +76,7 @@ DEFS    = -DUSE_STDPERIPH_DRIVER
 
 ## Compiler options
 CFLAGS  = -ggdb
-CFLAGS += -O3
+CFLAGS += -Os
 CFLAGS += -Wall -Wextra -Warray-bounds
 CFLAGS += -mlittle-endian -mthumb -mcpu=cortex-m4 -mthumb-interwork
 CFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
@@ -86,7 +86,7 @@ CFLAGS += -ffunction-sections -fdata-sections -std=c99
 # tell ld which linker file to use
 # (this file is in the current directory)
 LFLAGS  = -Tstm32_flash.ld
-#LFLAGS += --gc-sections
+LFLAGS += -Wl,--gc-sections
 
 
 ######################################################################
