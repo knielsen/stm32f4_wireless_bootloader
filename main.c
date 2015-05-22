@@ -361,14 +361,14 @@ nrf_config_bootload_rx(void)
 /*
   Would use SysTick_Config(), but it has a bug that it does not allow to
   set the reload value to 0xffffff (off-by-one error, max is 0xfffffe).
+  It also enables systicks interrupt, which we do not want here.
 */
 static void
 setup_systick(void)
 {
   SysTick->LOAD = 0xffffff;
   SysTick->VAL = 0;
-  SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk |
-    SysTick_CTRL_ENABLE_Msk;
+  SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_ENABLE_Msk;
 }
 
 
@@ -476,16 +476,6 @@ nrf_transmit_packet(uint8_t *packet)
       return 1;
     }
   }
-}
-
-
-/*
-  I actually wanted to disable the systicks interrupt.
-  But for now, just have an empty handler, so we don't crash when the
-  interrupt triggers...
-*/
-void SysTick_Handler(void)
-{
 }
 
 
