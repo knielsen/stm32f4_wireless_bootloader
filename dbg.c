@@ -114,7 +114,7 @@ println_int32(int32_t val)
 
 
 void
-println_uint32_hex(uint32_t val)
+print_uint32_hex(uint32_t val)
 {
   serial_output_hexbyte(val >> 24);
   serial_output_hexbyte((val >> 16) & 0xff);
@@ -204,7 +204,7 @@ serial_dump_buf(uint8_t *buf, uint32_t len)
 
   for (i = 0; i < len; i += 16)
   {
-    println_uint32_hex(i);
+    print_uint32_hex(i);
     serial_puts(" ");
     for (j = 0; j < 16 && (i+j) < len; ++j)
     {

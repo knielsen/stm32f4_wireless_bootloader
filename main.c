@@ -554,8 +554,9 @@ nrf_send_status_reply(uint8_t *packet_buf, uint8_t status)
 static void
 check_erase_and_flash(uint32_t address, uint32_t *data)
 {
-  serial_puts("ToDo: adr=");
-  println_uint32(address);
+  serial_puts("ToDo: adr=0x");
+  print_uint32_hex(address);
+  serial_puts("\r\n");
   (void)data;
 for (;;) { /* ToDo */ }
 }
