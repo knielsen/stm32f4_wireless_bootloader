@@ -8,6 +8,21 @@
 #include "nrf24l01p.h"
 
 
+/* Start offset for target main program. */
+static const uint32_t TARGET_START = 0x08004000;
+static const uint32_t TARGET_END = 0x08100000;
+
+
+/* Communications protocol. */
+#define POV_CMD_DEBUG 254
+#define POV_SUBCMD_RESET_TO_BOOTLOADER 255
+#define POV_SUBCMD_ENTER_BOOTLOADER 254
+#define POV_SUBCMD_RESET_TO_APP 253
+#define POV_SUBCMD_FLASH_BUFFER 252
+#define POV_SUBCMD_EXIT_DEBUG   251
+#define POV_SUBCMD_STATUS_REPLY 240
+
+
 /* This is apparently needed for libc/libm (eg. powf()). */
 int __errno;
 
@@ -479,11 +494,80 @@ nrf_transmit_packet(uint8_t *packet)
 }
 
 
+/*
+  Invoke the real target application.
+
+  We need to relocate the interrupt vector, load the stack pointer from
+  vector 0, and then jump to vector 1.
+*/
+static void
+jump_to_target(uint32_t target_start)
+{
+  uint32_t stack = ((uint32_t *)target_start)[0];
+  uint32_t start = ((uint32_t *)target_start)[1];
+
+  /* De-initialise the nRF24L01+, powering it down. */
+  nrf_write_reg(nRF_CONFIG, nRF_PRIM_RX | nRF_MASK_RX_DR | nRF_MASK_TX_DS |
+                nRF_MASK_MAX_RT|nRF_EN_CRC|nRF_CRCO);
+  csn_high();
+  ce_low();
+
+  /* ToDo: maybe de-initialise some stuff:
+      - systicks
+      - GPIOs
+      - USARTs
+  */
+
+  serial_puts("Boot to target\r\n");
+for (;;) { /* ToDo */}
+
+  SCB->VTOR = target_start;
+  __asm__ __volatile__
+    ("mov  sp, %0\n\t"
+     "bx   %1\n"
+     :
+     : "r" (stack), "r" (start)
+     );
+}
+
+
+/* Buffer holding one block of flash data from client. */
+static uint32_t flash_buffer[1024/sizeof(uint32_t)];
+
+
+static void
+nrf_send_status_reply(uint8_t *packet_buf, uint8_t status)
+{
+  ce_low();
+  nrf_config_bootload_tx();
+  bzero(packet_buf, 32);
+  packet_buf[0] = POV_CMD_DEBUG;
+  packet_buf[1] = POV_SUBCMD_STATUS_REPLY;
+  packet_buf[2] = status;
+  if (nrf_transmit_packet(packet_buf))
+    jump_to_target(TARGET_START);
+  nrf_config_bootload_rx();
+  ce_high();
+}
+
+
+static void
+check_erase_and_flash(uint32_t address, uint32_t *data)
+{
+  serial_puts("ToDo: adr=");
+  println_uint32(address);
+  (void)data;
+for (;;) { /* ToDo */ }
+}
+
+
 int
 main(void)
 {
-  uint8_t val;
+  uint32_t start_time, wait_counter;
   uint8_t status;
+  uint8_t val;
+  uint8_t packet_buf[32];
 
   setup_systick();
   setup_led();
@@ -504,11 +588,159 @@ main(void)
   serial_puts("\r\n");
   serial_puts("Wireless bootloader started\r\n");
 
+  nrf_config_bootload_rx();
+  /* Assert CE to start receiving. */
+  ce_high();
+
+  start_time = get_time();
+  /*
+    Systick can only count up to just under 0.1 seconds. We want to wait for
+    longer for pov_sender to contact us, so count in 0.05-seconds intervals.
+
+    (I prefer not to keep the bootloader as simple as possible, thus no timer
+    interrupt).
+  */
+  wait_counter = 40;  /* 2 seconds */
+  while (wait_counter > 0)
+  {
+    uint32_t now_time;
+    uint32_t status = nrf_get_status();
+    if (status & nRF_RX_DR)
+      break;                                    /* Data ready. */
+    now_time = get_time();
+    if (calc_time_from_val(start_time, now_time) > MCU_HZ/20)
+    {
+      --wait_counter;
+      start_time = dec_time(start_time, MCU_HZ/20);
+      serial_puts(".");
+    }
+  }
+  serial_puts("\r\n");
+
+  /* If no packet received within 2 seconds, proceed to boot target app. */
+  if (!wait_counter)
+  {
+    serial_puts("No programmer found\r\n");
+    jump_to_target(TARGET_START);
+  }
+
+  /*
+    Check if we got a "hello" packet. If we did, send a reply and start
+    processing bootloader commands. But if not, just boot to the target
+    application.
+  */
+  nrf_rx(packet_buf, 32);
+  if (packet_buf[0] != POV_CMD_DEBUG ||
+      packet_buf[1] != POV_SUBCMD_ENTER_BOOTLOADER)
+  {
+    serial_puts("Got unexpected packet\r\n");
+    jump_to_target(TARGET_START);
+  }
+  /* Now reply with a status packet so sender knows we are here. */
+  serial_puts("Got request from programmer, sending ack\r\n");
+  /*
+    For some reason this delay is needed. Else we time out waiting for the
+    TX_DS flag.
+  */
+  delay_us(100);
+  nrf_send_status_reply(packet_buf, 0);
+  serial_puts("Ack sent, starting to process cmds\r\n");
+
+  memset(flash_buffer, 0xff, sizeof(flash_buffer));
+  /* Now loop, processing received commands. */
   for (;;)
   {
-    led_on();
-    delay_us(500000);
-    led_off();
-    delay_us(500000);
+    /* Clear the "data ready flag", then check fifo to avoid races. */
+    nrf_write_reg(nRF_STATUS, nRF_RX_DR);
+    /* Read any packets in the Rx fifo. */
+    while (!(nRF_RX_EMPTY & nrf_read_reg(nRF_FIFO_STATUS, NULL)))
+    {
+      uint32_t do_reply;
+      uint8_t reply_status;
+      uint8_t subcmd;
+
+      nrf_rx(packet_buf, 32);
+      if (packet_buf[0] != POV_CMD_DEBUG)
+      {
+        serial_puts("Got non-debug packet\r\n");
+        jump_to_target(TARGET_START);
+      }
+
+      subcmd = packet_buf[1];
+      //serial_puts("P:");
+      //println_uint32(subcmd);
+      if (subcmd <= 34)
+      {
+        /* Load flash data. */
+        uint32_t start = subcmd * 30;
+        uint32_t len = 30;
+        if (start + len > 1024)
+          len = 1024 - start;
+        memcpy((uint8_t *)flash_buffer + start, &packet_buf[2], len);
+        do_reply = 0;
+      }
+      else if (subcmd == POV_SUBCMD_FLASH_BUFFER)
+      {
+        uint32_t block;
+        block = packet_buf[2] |
+          ((uint32_t)packet_buf[3] << 8) |
+          ((uint32_t)packet_buf[4] << 16) |
+          ((uint32_t)packet_buf[5] << 24);
+        /*
+          Hm. Originally the wireless flasher was only for Tiva TM4C, where the
+          flash starts at address 0 and the application (after bootload) starts
+          at 0x1000.
+
+          But on STM32F4, the flash starts at 0x08000000, and the application
+          starts at 0x08004000.
+
+          The wireless flash script is hard-coded to start at block 4, that
+          should perhaps be fixed, but for now, let's just map block 4 to the
+          start of the application in the flash.
+        */
+        block = block + 12 + 0x08000000/1024;
+        if (block < TARGET_START/1024 || block >= TARGET_END/1024)
+        {
+          serial_puts("Invalid block to flash\r\n");
+          reply_status = 1;
+        }
+        else
+        {
+          check_erase_and_flash(block*1024, flash_buffer);
+          reply_status = 0;
+        }
+        /* Clear the buffer in case of partial load of next flash data. */
+        memset(flash_buffer, 0xff, sizeof(flash_buffer));
+        do_reply = 1;
+      }
+      else if (subcmd == POV_SUBCMD_RESET_TO_APP ||
+               subcmd == POV_SUBCMD_EXIT_DEBUG)
+      {
+        serial_puts("Remote requested boot of target app\r\n");
+        jump_to_target(TARGET_START);
+        /* NotReached. */
+        do_reply = 0;
+      }
+      else if (subcmd == POV_SUBCMD_ENTER_BOOTLOADER)
+      {
+        /* Apparently flasher started over, let's send an ack and proceed. */
+        memset(flash_buffer, 0xff, sizeof(flash_buffer));
+        reply_status = 0;
+        do_reply = 1;
+      }
+      else
+      {
+        do_reply = 0;
+      }
+
+      if (do_reply)
+      {
+        nrf_send_status_reply(packet_buf, reply_status);
+        serial_puts("*");
+      }
+    }
+    /* Wait for more data to arrive. */
+    while (!(nRF_RX_DR & nrf_get_status()))
+      ;
   }
 }
