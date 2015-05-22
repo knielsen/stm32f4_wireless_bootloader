@@ -11,6 +11,7 @@
 /* Start offset for target main program. */
 static const uint32_t TARGET_START = 0x08004000;
 static const uint32_t TARGET_END = 0x08100000;
+static const uint32_t FLASH_START = 0x08000000;
 
 
 /* Communications protocol. */
@@ -450,6 +451,140 @@ delay_us(uint32_t us)
 }
 
 
+/* Buffer holding one block of flash data from client. */
+static uint32_t flash_buffer[1024/sizeof(uint32_t)];
+
+static uint32_t * const sector_data = (uint32_t *)0x20000000;
+static uint32_t sector_data_idx = 0;
+static const uint32_t sector_sizes[12] = {
+   16*1024,  16*1024,  16*1024,  16*1024,  64*1024, 128*1024,
+  128*1024, 128*1024, 128*1024, 128*1024, 128*1024, 128*1024
+};
+static const uint32_t sector_offsets[12] = {
+      0,         16*1024,    32*1024,    48*1024,    64*1024,   128*1024,
+  2*128*1024, 3*128*1024, 4*128*1024, 5*128*1024, 6*128*1024, 7*128*1024
+};
+
+
+/*
+  Write any pending flash data.
+
+  The wireless flash tools were originally written for the Tiva TM4C, where
+  the flash is simply an array of 1024 byte pages, so the protocol is written
+  to match that. However, the STM32F4 has a complex mix of large sector sizes.
+  So we have to buffer the 1024 byte chunks, and write them out to flash as
+  each flash sector is filled.
+
+  We check if we need to erase a sector before writing - it is only necessary
+  if we have to change a '0' bit to a '1'.
+
+  Sector 0 is special; it holds the bootloader, and we never overwrite it.
+*/
+static void
+flush_sector_data(void)
+{
+  uint32_t idx = sector_data_idx;
+  uint32_t sector_size;
+  uint32_t dest_addr;
+  uint32_t do_write = 0, do_erase = 0;
+  uint32_t i;
+  FLASH_Status status;
+
+  if (!idx)
+    return;
+  sector_size = sector_sizes[idx];
+  dest_addr = FLASH_START + sector_offsets[idx];
+
+  /* Check if we need erase. */
+  for (i = 0; i < sector_size/sizeof(uint32_t); ++i)
+  {
+    uint32_t old = ((uint32_t *)dest_addr)[i];
+    uint32_t new = sector_data[i];
+    if (~old & new)
+      do_erase = 1;
+    if (old != new)
+      do_write = 1;
+  }
+  if (do_erase || do_write)
+    FLASH_Unlock();
+  if (do_erase)
+  {
+    serial_puts("Erase sector ");
+    println_uint32(idx);
+    status = FLASH_EraseSector(idx<<3, VoltageRange_3);
+    if (status != FLASH_COMPLETE)
+    {
+      serial_puts("Error during flash erase: ");
+      println_uint32((uint32_t)status);
+    }
+  }
+  if (do_write)
+  {
+    serial_puts("Write sector ");
+    println_uint32(idx);
+    for (i = 0; i < sector_size/sizeof(uint32_t); ++i)
+    {
+      uint32_t new = sector_data[i];
+      if (((uint32_t *)dest_addr)[i] != new)
+      {
+        status = FLASH_ProgramWord(dest_addr + i*sizeof(uint32_t), new);
+        if (status != FLASH_COMPLETE)
+        {
+          serial_puts("Error during flash write: ");
+          println_uint32((uint32_t)status);
+          break;
+        }
+      }
+    }
+  }
+
+  if (do_erase || do_write)
+    FLASH_Lock();
+
+  /* Mark that data has been flushed. */
+  sector_data_idx = 0;
+}
+
+
+/*
+  Invoke the real target application.
+
+  We need to relocate the interrupt vector, load the stack pointer from
+  vector 0, and then jump to vector 1.
+*/
+static void
+jump_to_target(uint32_t target_start)
+{
+  uint32_t stack = ((uint32_t *)target_start)[0];
+  uint32_t start = ((uint32_t *)target_start)[1];
+
+  flush_sector_data();
+
+  /* De-initialise the nRF24L01+, powering it down. */
+  nrf_write_reg(nRF_CONFIG, nRF_PRIM_RX | nRF_MASK_RX_DR | nRF_MASK_TX_DS |
+                nRF_MASK_MAX_RT|nRF_EN_CRC|nRF_CRCO);
+  csn_high();
+  ce_low();
+
+  /* ToDo: maybe de-initialise some stuff:
+      - systicks
+      - GPIOs
+      - USARTs
+  */
+
+  serial_puts("Boot to target\r\n");
+for (;;) { /* ToDo */}
+
+  SCB->VTOR = target_start;
+  __asm__ __volatile__
+    ("mov  sp, %0\n\t"
+     "bx   %1\n"
+     :
+     : "r" (stack), "r" (start)
+     );
+}
+
+
 /*
   Read both the normal and FIFO status registers.
   Returns normal status or'ed with (fifo status left-shifted 8).
@@ -494,47 +629,6 @@ nrf_transmit_packet(uint8_t *packet)
 }
 
 
-/*
-  Invoke the real target application.
-
-  We need to relocate the interrupt vector, load the stack pointer from
-  vector 0, and then jump to vector 1.
-*/
-static void
-jump_to_target(uint32_t target_start)
-{
-  uint32_t stack = ((uint32_t *)target_start)[0];
-  uint32_t start = ((uint32_t *)target_start)[1];
-
-  /* De-initialise the nRF24L01+, powering it down. */
-  nrf_write_reg(nRF_CONFIG, nRF_PRIM_RX | nRF_MASK_RX_DR | nRF_MASK_TX_DS |
-                nRF_MASK_MAX_RT|nRF_EN_CRC|nRF_CRCO);
-  csn_high();
-  ce_low();
-
-  /* ToDo: maybe de-initialise some stuff:
-      - systicks
-      - GPIOs
-      - USARTs
-  */
-
-  serial_puts("Boot to target\r\n");
-for (;;) { /* ToDo */}
-
-  SCB->VTOR = target_start;
-  __asm__ __volatile__
-    ("mov  sp, %0\n\t"
-     "bx   %1\n"
-     :
-     : "r" (stack), "r" (start)
-     );
-}
-
-
-/* Buffer holding one block of flash data from client. */
-static uint32_t flash_buffer[1024/sizeof(uint32_t)];
-
-
 static void
 nrf_send_status_reply(uint8_t *packet_buf, uint8_t status)
 {
@@ -551,14 +645,42 @@ nrf_send_status_reply(uint8_t *packet_buf, uint8_t status)
 }
 
 
-static void
-check_erase_and_flash(uint32_t address, uint32_t *data)
+static uint32_t
+addr_to_block_idx(uint32_t addr)
 {
-  serial_puts("ToDo: adr=0x");
-  print_uint32_hex(address);
-  serial_puts("\r\n");
-  (void)data;
-for (;;) { /* ToDo */ }
+  uint32_t i;
+  uint32_t base;
+
+  base = FLASH_START;
+  if (addr < base)
+    return 0;
+  for (i = 0; i < 12; ++i)
+  {
+    uint32_t sector_size = sector_sizes[i];
+    base += sector_size;
+    if (addr < base)
+      return i;
+  }
+  return 0;
+}
+
+
+static void
+accept_blok_data(uint32_t addr, uint32_t *data)
+{
+  uint32_t idx = addr_to_block_idx(addr);
+  uint32_t offset;
+
+  if (idx != sector_data_idx)
+  {
+    /* New block (needs flush of data), or the very first block. */
+    if (sector_data_idx)
+      flush_sector_data();
+    sector_data_idx = idx;
+    memset(sector_data, 0xff, sector_sizes[idx]);
+  }
+  offset = addr - sector_offsets[idx] - FLASH_START;
+  memcpy((uint8_t *)sector_data + offset, data, 1024);
 }
 
 
@@ -707,7 +829,7 @@ main(void)
         }
         else
         {
-          check_erase_and_flash(block*1024, flash_buffer);
+          accept_blok_data(block*1024, flash_buffer);
           reply_status = 0;
         }
         /* Clear the buffer in case of partial load of next flash data. */
