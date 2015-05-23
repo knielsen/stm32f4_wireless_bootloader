@@ -506,7 +506,10 @@ flush_sector_data(void)
       do_write = 1;
   }
   if (do_erase || do_write)
+  {
     FLASH_Unlock();
+    led_on();
+  }
   if (do_erase)
   {
     serial_puts("Erase sector ");
@@ -539,7 +542,10 @@ flush_sector_data(void)
   }
 
   if (do_erase || do_write)
+  {
+    led_off();
     FLASH_Lock();
+  }
 
   /* Mark that data has been flushed. */
   sector_data_idx = 0;
@@ -555,6 +561,7 @@ flush_sector_data(void)
 static void
 jump_to_target(uint32_t target_start)
 {
+  USART_ClockInitTypeDef USART_ClockInitStruct;
   uint32_t stack = ((uint32_t *)target_start)[0];
   uint32_t start = ((uint32_t *)target_start)[1];
 
@@ -566,14 +573,25 @@ jump_to_target(uint32_t target_start)
   csn_high();
   ce_low();
 
-  /* ToDo: maybe de-initialise some stuff:
-      - systicks
-      - GPIOs
-      - USARTs
+  /*
+    De-initialise the stuff we used, to make application run in an
+    environment more closely resembling clean reset.
   */
+  USART_Cmd(USART1, DISABLE);
+  USART_ClockInitStruct.USART_Clock = USART_Clock_Disable;
+  USART_ClockInitStruct.USART_CPOL = USART_CPOL_Low;
+  USART_ClockInitStruct.USART_CPHA = USART_CPHA_1Edge;
+  USART_ClockInitStruct.USART_LastBit = USART_LastBit_Enable;
+  USART_ClockInit(USART1, &USART_ClockInitStruct);
+  USART_DeInit(USART1);
+  USART_Cmd(USART3, DISABLE);
+  USART_DeInit(USART3);
+  GPIO_DeInit(GPIOA);
+  GPIO_DeInit(GPIOB);
+  GPIO_DeInit(GPIOC);
+  SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk;
 
   serial_puts("Boot to target\r\n");
-for (;;) { /* ToDo */}
 
   SCB->VTOR = target_start;
   __asm__ __volatile__
