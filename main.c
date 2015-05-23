@@ -584,14 +584,15 @@ jump_to_target(uint32_t target_start)
   USART_ClockInitStruct.USART_LastBit = USART_LastBit_Enable;
   USART_ClockInit(USART1, &USART_ClockInitStruct);
   USART_DeInit(USART1);
-  USART_Cmd(USART3, DISABLE);
-  USART_DeInit(USART3);
   GPIO_DeInit(GPIOA);
-  GPIO_DeInit(GPIOB);
   GPIO_DeInit(GPIOC);
   SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk;
 
-  serial_puts("Boot to target\r\n");
+  serial_puts("Boot to target\r\n\r\n");
+  USART_Cmd(USART3, DISABLE);
+  USART_DeInit(USART3);
+  GPIO_DeInit(GPIOB);
+  delay(MCU_HZ/(3*50));
 
   SCB->VTOR = target_start;
   __asm__ __volatile__
