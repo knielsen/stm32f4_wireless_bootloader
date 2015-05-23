@@ -40,7 +40,7 @@ SRCS  += misc.c
 # Startup file written by ST
 # The assembly code in this file is the first one to be
 # executed. Normally you do not change this file.
-SRCS += $(STM_DIR)/Libraries/CMSIS/ST/STM32F4xx/Source/Templates/TrueSTUDIO/startup_stm32f4xx.s
+SRCS += my_startup_stm32f4xx.s
 
 # The header files we use are located here
 INC_DIRS  = $(STM_DIR)/Utilities/STM32F4-Discovery
