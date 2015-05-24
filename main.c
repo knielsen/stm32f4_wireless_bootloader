@@ -739,7 +739,7 @@ main(void)
     Systick can only count up to just under 0.1 seconds. We want to wait for
     longer for pov_sender to contact us, so count in 0.05-seconds intervals.
 
-    (I prefer not to keep the bootloader as simple as possible, thus no timer
+    (I prefer to keep the bootloader as simple as possible, thus no timer
     interrupt).
   */
   wait_counter = 40;  /* 2 seconds */
