@@ -1,4 +1,4 @@
-#define LILLE_VIDUNDER
+#define PCB_POV3D
 
 #ifdef STM32F4_DISCOVERY
 #define LED_PERIPH RCC_AHB1Periph_GPIOD

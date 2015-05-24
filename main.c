@@ -53,9 +53,9 @@ bzero(void *buf, uint32_t len)
     PA8   clk
     PB6   mosi
     PB7   miso
-    PC6   cs
-    PC7   ce
-    PC8   irq
+    PC1   cs
+    PC2   ce
+    PC3   irq
 */
 static void
 setup_nrf_spi(void)
@@ -95,13 +95,13 @@ setup_nrf_spi(void)
   GPIO_PinAFConfig(GPIOB, GPIO_PinSource7, GPIO_AF_USART1);
 
   /*
-    CS on PC6, CE on PC7 (we do not need IRQ in this bootloader).
+    CS on PC1, CE on PC2 (we do not need IRQ in this bootloader).
     CS is high initially (active low).
     CE is low initially (active high).
   */
-  GPIO_SetBits(GPIOC, GPIO_Pin_6);
-  GPIO_ResetBits(GPIOC, GPIO_Pin_7);
-  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6|GPIO_Pin_7;
+  GPIO_SetBits(GPIOC, GPIO_Pin_1);
+  GPIO_ResetBits(GPIOC, GPIO_Pin_2);
+  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_1|GPIO_Pin_2;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_25MHz;
   GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
@@ -128,28 +128,28 @@ setup_nrf_spi(void)
 static inline void
 csn_low(void)
 {
-  GPIO_ResetBits(GPIOC, GPIO_Pin_6);
+  GPIO_ResetBits(GPIOC, GPIO_Pin_1);
 }
 
 
 static inline void
 csn_high(void)
 {
-  GPIO_SetBits(GPIOC, GPIO_Pin_6);
+  GPIO_SetBits(GPIOC, GPIO_Pin_1);
 }
 
 
 static inline void
 ce_low(void)
 {
-  GPIO_ResetBits(GPIOC, GPIO_Pin_7);
+  GPIO_ResetBits(GPIOC, GPIO_Pin_2);
 }
 
 
 static inline void
 ce_high(void)
 {
-  GPIO_SetBits(GPIOC, GPIO_Pin_7);
+  GPIO_SetBits(GPIOC, GPIO_Pin_2);
 }
 
 
