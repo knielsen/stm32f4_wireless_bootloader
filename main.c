@@ -269,7 +269,7 @@ static uint8_t
 nrf_read_reg(uint8_t reg, uint8_t *status_ptr)
 {
   uint8_t recvbuf[2];
-  nrf_read_reg_n(reg, recvbuf, 2);
+  nrf_read_reg_n(reg, recvbuf, 1);
   if (status_ptr)
     *status_ptr = recvbuf[0];
   return recvbuf[1];
