@@ -1,118 +1,73 @@
-# Name of the binaries.
-PROJ_NAME=wireless_bootloader
+TARGET=wireless_bootloader
 
-######################################################################
-#                         SETUP SOURCES                              #
-######################################################################
+OBJS = $(TARGET).o dbg.o led.o
 
-
-# This is the directory containing the firmware package,
-# the unzipped folder downloaded from here:
-# http://www.st.com/web/en/catalog/tools/PF257904
 STM_DIR=/home/knielsen/devel/study/stm32f4/STM32F4-Discovery_FW_V1.1.0
-
-# This is where the source files are located,
-# which are not in the current directory
-# (the sources of the standard peripheral library, which we use)
-# see also "info:/make/Selective Search" in Konqueror
 STM_SRC = $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/src
-
-# Tell make to look in that folder if it cannot find a source
-# in the current directory
 vpath %.c $(STM_SRC)
+STM_OBJS = system_stm32f4xx.o
+STM_OBJS  += stm32f4xx_rcc.o
+STM_OBJS  += stm32f4xx_gpio.o
+STM_OBJS  += stm32f4xx_usart.o
+STM_OBJS  += stm32f4xx_flash.o
+STM_OBJS  += misc.o
 
-# My source file
-SRCS   = main.c dbg.c led.c
-
-# Contains initialisation code and must be compiled into
-# our project. This file is in the current directory and
-# was writen by ST.
-SRCS  += system_stm32f4xx.c
-
-# These source files implement the functions we use.
-# make finds them by searching the vpath defined above.
-SRCS  += stm32f4xx_rcc.c 
-SRCS  += stm32f4xx_gpio.c
-SRCS  += stm32f4xx_usart.c
-SRCS  += stm32f4xx_flash.c
-SRCS  += misc.c
-
-# Startup file written by ST
-# The assembly code in this file is the first one to be
-# executed. Normally you do not change this file.
-SRCS += my_startup_stm32f4xx.s
-
-# The header files we use are located here
 INC_DIRS  = $(STM_DIR)/Utilities/STM32F4-Discovery
 INC_DIRS += $(STM_DIR)/Libraries/CMSIS/Include
 INC_DIRS += $(STM_DIR)/Libraries/CMSIS/ST/STM32F4xx/Include
 INC_DIRS += $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/inc
 INC_DIRS += .
+INC = $(addprefix -I,$(INC_DIRS))
 
-# in case we have to many sources and don't want 
-# to compile all sources every time
-# OBJS = $(SRCS:.c=.o)
-
-######################################################################
-#                         SETUP TOOLS                                #
-######################################################################
+CC=arm-none-eabi-gcc
+LD=arm-none-eabi-gcc
+OBJCOPY=arm-none-eabi-objcopy
 
 
-# The tool we use
-CC      = arm-none-eabi-gcc
-OBJCOPY = arm-none-eabi-objcopy
-GDB     = arm-none-eabi-gdb
+STARTUP_OBJ=my_startup_stm32f4xx.o
+STARTUP_SRC=my_startup_stm32f4xx.s
+LINKSCRIPT=$(TARGET).ld
 
-## Preprocessor options
+ARCH_FLAGS=-mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -ffunction-sections -fdata-sections
 
-# directories to be searched for header files
-INCLUDE = $(addprefix -I,$(INC_DIRS))
-
-# #defines needed when working with the STM library
-DEFS    = -DUSE_STDPERIPH_DRIVER
-# if you use the following option, you must implement the function 
-#    assert_failed(uint8_t* file, uint32_t line)
-# because it is conditionally used in the library
-# DEFS   += -DUSE_FULL_ASSERT
-
-## Compiler options
-CFLAGS  = -ggdb
-CFLAGS += -Os
-CFLAGS += -Wall -Wextra -Warray-bounds
-CFLAGS += -mlittle-endian -mthumb -mcpu=cortex-m4 -mthumb-interwork
-CFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
-CFLAGS += -ffunction-sections -fdata-sections -std=c99
-
-## Linker options
-# tell ld which linker file to use
-# (this file is in the current directory)
-LFLAGS  = -Tstm32_flash.ld
-LFLAGS += -Wl,--gc-sections
+CFLAGS=-ggdb -Os -std=c99 -Wall -Wextra -Warray-bounds $(ARCH_FLAGS) $(INC) -DUSE_STDPERIPH_DRIVER
+LDFLAGS=-Wl,--gc-sections -lm
 
 
-######################################################################
-#                         SETUP TARGETS                              #
-######################################################################
+.PHONY: all flash clean tty cat
 
-.PHONY: $(PROJ_NAME) all
-all: $(PROJ_NAME)
+all: $(TARGET).bin
 
-$(PROJ_NAME): $(PROJ_NAME).elf
+$(TARGET).bin: $(TARGET).elf
 
-$(PROJ_NAME).elf: $(SRCS)
-	$(CC) $(INCLUDE) $(DEFS) $(CFLAGS) $(LFLAGS) $^ -o $@ 
-	$(OBJCOPY) -O ihex $(PROJ_NAME).elf   $(PROJ_NAME).hex
-	$(OBJCOPY) -O binary $(PROJ_NAME).elf $(PROJ_NAME).bin
+$(TARGET).elf: $(OBJS) $(STM_OBJS) $(STARTUP_OBJ) $(LINKSCRIPT)
+	$(LD) $(ARCH_FLAGS) -T $(LINKSCRIPT) -o $@ $(STARTUP_OBJ) $(OBJS) $(STM_OBJS) $(LDFLAGS)
 
+$(TARGET).o: $(TARGET).c
+
+$(STARTUP_OBJ): $(STARTUP_SRC)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+dbg.o: dbg.h
+
+leds.c: leds.h
+
+wireless_bootloader.c: dbg.h led.h nrf24l01p.h
+
+%.bin: %.elf
+	$(OBJCOPY) -O binary $< $@
+
+flash: $(TARGET).bin
+	st-flash write $(TARGET).bin 0x8000000
 
 clean:
-	rm -f *.o $(PROJ_NAME).elf $(PROJ_NAME).hex $(PROJ_NAME).bin
+	rm -f $(OBJS) $(STM_OBJS) $(TARGET).elf $(TARGET).bin $(STARTUP_OBJ)
 
-# Flash the STM32F4
-flash: 
-	st-flash write $(PROJ_NAME).bin 0x8000000
+tty:
+	stty -F/dev/ttyACM1 raw -echo -hup cs8 -parenb -cstopb 115200
 
-.PHONY: debug
-debug:
-# before you start gdb, you must start st-util
-	$(GDB) $(PROJ_NAME).elf
+cat:
+	cat /dev/ttyACM1
