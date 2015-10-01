@@ -276,7 +276,7 @@ nrf_read_reg(uint8_t reg, uint8_t *status_ptr)
 }
 
 
-static const uint8_t nrf_addr[3] = { 0xe7, 0xe7, 0xe7 };
+static const uint8_t nrf_addr[3] = { 0x7e, 0xc8, 0x33 };
 
 
 /*
@@ -304,7 +304,7 @@ nrf_init_config(uint8_t is_rx, uint32_t channel, uint32_t power)
   nrf_write_reg(nRF_SETUP_RETR, (1 << nRF_ARD_SHIFT) | 15);
   nrf_write_reg(nRF_RF_CH, channel);
   /* Use 2Mbps, and set transmit power. */
-  nrf_write_reg(nRF_RF_SETUP, nRF_RF_DR_HIGH | power);
+  nrf_write_reg(nRF_RF_SETUP, nRF_RF_DR_LOW | power);
   nrf_write_reg_n(nRF_RX_ADDR_P0, nrf_addr, 3);
   nrf_write_reg_n(nRF_TX_ADDR, nrf_addr, 3);
   /* Set payload size for pipe 0. */
@@ -721,7 +721,7 @@ main(void)
   /* nRF24L01+ datasheet says to wait 100msec for bootup. */
   delay(168000000/3/10);
 
-  nrf_init_config(0 /* Tx */, 2, nRF_RF_PWR_0DBM);
+  nrf_init_config(0 /* Tx */, 81, nRF_RF_PWR_0DBM);
   serial_puts("Tx: Read CONFIG=0x");
   val = nrf_read_reg(nRF_CONFIG, &status);
   serial_output_hexbyte(val);
