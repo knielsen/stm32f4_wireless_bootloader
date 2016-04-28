@@ -1,7 +1,7 @@
 /* POV3D. */
 
 #include <string.h>
-#include <stm32f4_discovery.h>
+#include <stm32f4xx.h>
 
 #include "dbg.h"
 #include "led.h"
@@ -29,7 +29,7 @@ int __errno;
 
 
 /* To change this, must change the code in system_stm32f4xx.c. */
-#define MCU_HZ 168000000
+#define MCU_HZ 180000000
 
 
 static void
@@ -456,11 +456,17 @@ static uint32_t flash_buffer[1024/sizeof(uint32_t)];
 
 static uint32_t * const sector_data = (uint32_t *)0x20000000;
 static uint32_t sector_data_idx = 0;
-static const uint32_t sector_sizes[12] = {
+/*
+  Flash memory layout. The STM32F469 with 2 MB flash has two identical banks
+  with this organisation.
+*/
+#define NUM_BANKS 2
+#define SECTORS_IN_BANK 12
+static const uint32_t sector_sizes[SECTORS_IN_BANK] = {
    16*1024,  16*1024,  16*1024,  16*1024,  64*1024, 128*1024,
   128*1024, 128*1024, 128*1024, 128*1024, 128*1024, 128*1024
 };
-static const uint32_t sector_offsets[12] = {
+static const uint32_t sector_offsets[SECTORS_IN_BANK] = {
       0,         16*1024,    32*1024,    48*1024,    64*1024,   128*1024,
   2*128*1024, 3*128*1024, 4*128*1024, 5*128*1024, 6*128*1024, 7*128*1024
 };
@@ -492,8 +498,10 @@ flush_sector_data(void)
 
   if (!idx)
     return;
-  sector_size = sector_sizes[idx];
-  dest_addr = FLASH_START + sector_offsets[idx];
+  sector_size = sector_sizes[idx % SECTORS_IN_BANK];
+  dest_addr = FLASH_START + sector_offsets[idx % SECTORS_IN_BANK] +
+    ( (idx / SECTORS_IN_BANK) *
+      (sector_offsets[SECTORS_IN_BANK-1] + sector_sizes[SECTORS_IN_BANK-1]));
 
   /* Check if we need erase. */
   for (i = 0; i < sector_size/sizeof(uint32_t); ++i)
@@ -673,7 +681,7 @@ addr_to_block_idx(uint32_t addr)
   base = FLASH_START;
   if (addr < base)
     return 0;
-  for (i = 0; i < 12; ++i)
+  for (i = 0; i < NUM_BANKS*SECTORS_IN_BANK; ++i)
   {
     uint32_t sector_size = sector_sizes[i];
     base += sector_size;
@@ -715,11 +723,11 @@ main(void)
   setup_led();
   setup_serial();
 
-  serial_puts("\r\n\r\nSTM32F4 wireless bootloader\r\nCopyright 2015 Kristian Nielsen\r\n");
+  serial_puts("\r\n\r\nSTM32F4 wireless bootloader\r\nCopyright 2016 Kristian Nielsen\r\n");
 
   setup_nrf_spi();
   /* nRF24L01+ datasheet says to wait 100msec for bootup. */
-  delay(168000000/3/10);
+  delay(MCU_HZ/3/10);
 
   nrf_init_config(0 /* Tx */, 81, nRF_RF_PWR_0DBM);
   serial_puts("Tx: Read CONFIG=0x");

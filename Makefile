@@ -2,7 +2,7 @@ TARGET=wireless_bootloader
 
 OBJS = $(TARGET).o dbg.o led.o
 
-STM_DIR=/home/knielsen/devel/study/stm32f4/STM32F4-Discovery_FW_V1.1.0
+STM_DIR=/kvm/src/STM32F4xx_DSP_StdPeriph_Lib_V1.6.1
 STM_SRC = $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/src
 vpath %.c $(STM_SRC)
 STM_OBJS = system_stm32f4xx.o
@@ -12,9 +12,8 @@ STM_OBJS  += stm32f4xx_usart.o
 STM_OBJS  += stm32f4xx_flash.o
 STM_OBJS  += misc.o
 
-INC_DIRS  = $(STM_DIR)/Utilities/STM32F4-Discovery
 INC_DIRS += $(STM_DIR)/Libraries/CMSIS/Include
-INC_DIRS += $(STM_DIR)/Libraries/CMSIS/ST/STM32F4xx/Include
+INC_DIRS += $(STM_DIR)/Libraries/CMSIS/Device/ST/STM32F4xx/Include
 INC_DIRS += $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/inc
 INC_DIRS += .
 INC = $(addprefix -I,$(INC_DIRS))
@@ -30,7 +29,7 @@ LINKSCRIPT=$(TARGET).ld
 
 ARCH_FLAGS=-mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -ffunction-sections -fdata-sections
 
-CFLAGS=-ggdb -Os -std=c99 -Wall -Wextra -Warray-bounds $(ARCH_FLAGS) $(INC) -DUSE_STDPERIPH_DRIVER
+CFLAGS=-ggdb -Os -std=c99 -Wall -Wextra -Warray-bounds $(ARCH_FLAGS) $(INC) -DSTM32F469_479xx -DUSE_STDPERIPH_DRIVER
 LDFLAGS=-Wl,--gc-sections -lm
 
 

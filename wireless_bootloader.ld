@@ -2,7 +2,7 @@ MEMORY
 {
 	/* Restrict FLASH to the first 16K block for the bootloader. */
 	FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 16K
-	RAM_MAIN (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
+	RAM_MAIN (rwx) : ORIGIN = 0x20000000, LENGTH = 320K
 	RAM_CPU (rwx) : ORIGIN = 0x10000000, LENGTH = 64K
 }
 _estack = 0x10010000;    /* end of 64K RAM internal in Cortex M4 */

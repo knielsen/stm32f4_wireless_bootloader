@@ -3,7 +3,7 @@
 */
 
 #include <math.h>
-#include <stm32f4_discovery.h>
+#include <stm32f4xx.h>
 
 #include "dbg.h"
 
